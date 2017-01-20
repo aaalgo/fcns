@@ -20,7 +20,6 @@ flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_string('db', 'db', '')
 flags.DEFINE_string('val', None, '')
-flags.DEFINE_integer('max_max', None, '')
 flags.DEFINE_string('net', 'simple', '')
 flags.DEFINE_string('opt', 'adam', '')
 flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
@@ -37,7 +36,6 @@ flags.DEFINE_integer('ckpt_epochs', 200, '')
 flags.DEFINE_string('log', None, '')
 flags.DEFINE_integer('max_summary_images', 20, '')
 flags.DEFINE_integer('channels', 1, '')
-
 
 # clip array to match FCN stride
 def clip (v, stride):
@@ -144,20 +142,6 @@ def main (_):
     config = tf.ConfigProto()
     config.gpu_options.allow_growth=True
 
-    val_images = None
-    if FLAGS.val:
-        case = Case(FLAGS.val)
-        try:
-            lb = detect_lb(case.images)
-        except:
-            print('bad color: %s'% FLAGS.val)
-            raise
-        case.normalize(0, 255, min_th=lb)
-        case = case.rescale(20, FLAGS.spacing)
-        val_images = case.images.reshape(case.images.shape + (1,))
-        val_images = clip(val_images, stride)
-        pass
-
     with tf.Session(config=config) as sess:
         sess.run(init)
         if FLAGS.resume:
@@ -184,10 +168,6 @@ def main (_):
                     % (step, (stop_time - global_start_time), (stop_time - start_time), txt))
             if summary_writer:
                 summary_writer.add_summary(summaries, step)
-                # validation
-                if not val_images is None:
-                    summaries, = sess.run([val_summaries], feed_dict={X:val_images})
-                    summary_writer.add_summary(summaries, step)
             epoch += 1
             if epoch and (epoch % FLAGS.ckpt_epochs == 0):
                 ckpt_path = '%s/%d' % (FLAGS.model, step)
@@ -203,7 +183,7 @@ def main (_):
                     images = clip(images, stride)
                     labels = clip(labels, stride)
                     feed_dict = {X: images, Y: labels}
-                    mm = sess.run([metrics], feed_dict=feed_dict)
+                    mm, = sess.run([metrics], feed_dict=feed_dict)
                     avg += np.array(mm)
                     cc += 1
                 avg /= cc
@@ -213,7 +193,8 @@ def main (_):
 
             pass
         pass
-    summary_writer.close()
+    if summary_writer:
+        summary_writer.close()
     pass
 
 if __name__ == '__main__':
