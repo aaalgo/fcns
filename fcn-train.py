@@ -10,11 +10,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 from tensorflow.contrib.layers.python.layers import utils
-# RESNET: import these for slim version of resnet
 import picpac
 import nets
-
-BATCH = 1
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
@@ -26,16 +23,18 @@ flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
 flags.DEFINE_bool('decay', False, '')
 flags.DEFINE_float('decay_rate', 10000, '')
 flags.DEFINE_float('decay_steps', 0.9, '')
-flags.DEFINE_float('momentum', 0.99, 'Initial learning rate.')
+flags.DEFINE_float('momentum', 0.99, 'when opt==mom')
 flags.DEFINE_string('model', 'model', 'Directory to put the training data.')
 flags.DEFINE_string('resume', None, '')
 flags.DEFINE_integer('max_steps', 200000, '')
 flags.DEFINE_integer('epoch_steps', 100, '')
 flags.DEFINE_integer('val_epochs', 200, '')
 flags.DEFINE_integer('ckpt_epochs', 200, '')
-flags.DEFINE_string('log', None, '')
+flags.DEFINE_string('log', None, 'tensorboard')
 flags.DEFINE_integer('max_summary_images', 20, '')
 flags.DEFINE_integer('channels', 1, '')
+flags.DEFINE_string('padding', 'SAME', '')
+flags.DEFINE_bool('clip', False, '')
 
 # clip array to match FCN stride
 def clip (v, stride):
@@ -61,8 +60,18 @@ def logits2prob (v, scope='logits2prob', scale=None):
             v *= scale
     return v
 
-
 def fcn_loss (logits, labels):
+    # to HWC
+    logits = tf.squeeze(logits, axis=0)
+    labels = tf.squeeze(labels, axis=0)
+    # crop logits and labels to smaller size
+    logits_shape = tf.unpack(tf.shape(logits))
+    labels_shape = tf.unpack(tf.shape(labels))
+    H = tf.minimum(logits_shape[0], labels_shape[0])
+    W = tf.minimum(logits_shape[1], labels_shape[1])
+    logits = tf.image.crop_to_bonding_box(logits, 0, 0, H, W)
+    labels = tf.image.crop_to_bonding_box(logits, 0, 0, H, W)
+
     logits = tf.reshape(logits, (-1, 2))
     labels = tf.to_int32(labels)    # float from picpac
     labels = tf.reshape(labels, (-1,))
@@ -78,12 +87,9 @@ def main (_):
     assert FLAGS.db and os.path.exists(FLAGS.db)
 
     picpac_config = dict(seed=2016,
-                #loop=True,
                 shuffle=True,
                 reshuffle=True,
-                #resize_width=256,
-                #resize_height=256,
-                batch=BATCH,
+                batch=1,
                 split=1,
                 split_fold=0,
                 annotate='json',
@@ -93,7 +99,6 @@ def main (_):
                 pert_angle=20,
                 pert_min_scale=0.8,
                 pert_max_scale=1.2,
-                #pad=False,
                 pert_hflip=True,
                 pert_vflip=True,
                 channel_first=False # this is tensorflow specific
@@ -154,8 +159,9 @@ def main (_):
             avg = np.array([0] * len(metrics), dtype=np.float32)
             for _ in tqdm(range(FLAGS.epoch_steps), leave=False):
                 images, labels, _ = tr_stream.next()
-                images = clip(images, stride)
-                labels = clip(labels, stride)
+                if FLAGS.padding == 'SAME' and FLAGS.clip:
+                    images = clip(images, stride)
+                    labels = clip(labels, stride)
                 feed_dict = {X: images, Y: labels}
                 mm, _, summaries = sess.run([metrics, train_op, train_summaries], feed_dict=feed_dict)
                 avg += np.array(mm)
@@ -180,8 +186,9 @@ def main (_):
                 avg = np.array([0] * len(metrics), dtype=np.float32)
                 cc = 0
                 for images, labels, _ in val_stream:
-                    images = clip(images, stride)
-                    labels = clip(labels, stride)
+                    if FLAGS.padding == 'SAME' and FLAGS.clip:
+                        images = clip(images, stride)
+                        labels = clip(labels, stride)
                     feed_dict = {X: images, Y: labels}
                     mm, = sess.run([metrics], feed_dict=feed_dict)
                     avg += np.array(mm)
