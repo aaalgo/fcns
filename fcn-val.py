@@ -15,7 +15,7 @@ import picpac
 from gallery import Gallery
 
 class Model:
-    def __init__ (self, path, name=None, prob=False):
+    def __init__ (self, path, name='logits:0', prob=False):
         """applying tensorflow image model.
 
         path -- path to model
@@ -71,26 +71,8 @@ class Model:
             images = images.reshape(images.shape + (1,))
             pass
 
-        if self.prob:
-            out = np.zeros(images.shape[:3])
-        else:
-            out = np.zeros(images.shape)
-            pass
-
-        for b in range(0, images.shape[0], batch):
-            e = b + batch
-            if e > images.shape[0]:
-                e = images.shape[0]
-            bb = self.sess.run(self.outputs, feed_dict={self.inputs: images[b:e]})
-            _, H, W = bb.shape[:3]
-            _, H0, W0 = out.shape[:3]
-            oH = (H - H0)//2
-            oW = (W - W0)//2
-            out[b:e, :, :] = bb[:, oH:(oH+H0), oW:(oW+W0)]
-        return out
+        return self.sess.run(self.outputs, feed_dict={self.inputs: images})
     pass
-
-BATCH = 1
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
@@ -109,6 +91,12 @@ def save (path, images, prob):
 
     prob *= 255
     cv2.normalize(image, image, 0, 255, cv2.NORM_MINMAX)
+
+    H = max(image.shape[0], prob.shape[0])
+    both = np.zeros((H, image.shape[1]*2 + prob.shape[1]))
+    both[0:image.shape[0],0:image.shape[1]] = image
+    off = image.shape[1]
+
     for contour in contours:
         tmp = np.copy(contour[:,0])
         contour[:, 0] = contour[:, 1]
@@ -116,7 +104,10 @@ def save (path, images, prob):
         contour = contour.reshape((1, -1, 2)).astype(np.int32)
         cv2.polylines(image, contour, True, 255)
         cv2.polylines(prob, contour, True, 255)
-    both = np.concatenate([image, prob], axis=1)
+
+    both[0:image.shape[0],off:(off+image.shape[1])] = image
+    off += image.shape[1]
+    both[0:prob.shape[0],off:(off+prob.shape[1])] = prob
     cv2.imwrite(path, both)
 
 
@@ -130,7 +121,7 @@ def main (_):
                 reshuffle=True,
                 #resize_width=256,
                 #resize_height=256,
-                batch=BATCH,
+                batch=1,
                 split=1,
                 split_fold=0,
                 annotate='json',

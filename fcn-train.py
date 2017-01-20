@@ -5,6 +5,7 @@ from __future__ import print_function
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import time
+import logging
 from tqdm import tqdm
 import numpy as np
 import tensorflow as tf
@@ -34,6 +35,7 @@ flags.DEFINE_string('log', None, 'tensorboard')
 flags.DEFINE_integer('max_summary_images', 20, '')
 flags.DEFINE_integer('channels', 1, '')
 flags.DEFINE_string('padding', 'SAME', '')
+flags.DEFINE_integer('verbose', logging.INFO, '')
 flags.DEFINE_bool('clip', False, '')
 
 # clip array to match FCN stride
@@ -69,8 +71,8 @@ def fcn_loss (logits, labels):
     labels_shape = tf.unpack(tf.shape(labels))
     H = tf.minimum(logits_shape[0], labels_shape[0])
     W = tf.minimum(logits_shape[1], labels_shape[1])
-    logits = tf.image.crop_to_bonding_box(logits, 0, 0, H, W)
-    labels = tf.image.crop_to_bonding_box(logits, 0, 0, H, W)
+    logits = tf.image.crop_to_bounding_box(logits, 0, 0, H, W)
+    labels = tf.image.crop_to_bounding_box(labels, 0, 0, H, W)
 
     logits = tf.reshape(logits, (-1, 2))
     labels = tf.to_int32(labels)    # float from picpac
@@ -80,6 +82,7 @@ def fcn_loss (logits, labels):
     return loss, [loss] #, [loss, xe, norm, nz_all, nz_dim]
 
 def main (_):
+    logging.basicConfig(level=FLAGS.verbose)
     try:
         os.makedirs(FLAGS.model)
     except:
@@ -114,7 +117,9 @@ def main (_):
     X = tf.placeholder(tf.float32, shape=(None, None, None, 1), name="images")
     Y = tf.placeholder(tf.int32, shape=(None, None, None, 1), name="labels")
 
-    logits, stride = getattr(nets, FLAGS.net)(X)
+    with slim.arg_scope([slim.conv2d, slim.conv2d_transpose, slim.max_pool2d],
+                            padding=FLAGS.padding):
+        logits, stride = getattr(nets, FLAGS.net)(X)
     loss, metrics = fcn_loss(logits, Y)
     metric_names = [x.name[:-2] for x in metrics]
 
@@ -146,6 +151,23 @@ def main (_):
     saver = tf.train.Saver()
     config = tf.ConfigProto()
     config.gpu_options.allow_growth=True
+
+    # check if padding have been properly setup
+    # this should be ensured if all layers are added via slim
+    graph = tf.get_default_graph()
+    graph.finalize()
+    graph_def = graph.as_graph_def()
+    for node in graph_def.node:
+        if 'padding' in node.attr:
+            padding = node.attr['padding'].s
+            if padding != FLAGS.padding:
+                logging.error("node %s type %s incorrect padding %s, should be %s" % (
+                                node.name, node.op, padding, FLAGS.padding))
+            else:
+                logging.info("node %s padding OK" % node.name)
+                pass
+            pass
+        pass
 
     with tf.Session(config=config) as sess:
         sess.run(init)
