@@ -114,14 +114,17 @@ def main (_):
         assert os.path.exists(FLAGS.val)
         val_stream = picpac.ImageStream(FLAGS.val, perturb=False, loop=False, **picpac_config)
 
-    X = tf.placeholder(tf.float32, shape=(None, None, None, 1), name="images")
+    X = tf.placeholder(tf.float32, shape=(None, None, None, FLAGS.channels), name="images")
     Y = tf.placeholder(tf.int32, shape=(None, None, None, 1), name="labels")
 
     with slim.arg_scope([slim.conv2d, slim.conv2d_transpose, slim.max_pool2d],
                             padding=FLAGS.padding):
         logits, stride = getattr(nets, FLAGS.net)(X)
     loss, metrics = fcn_loss(logits, Y)
+    #tf.summary.scalar("loss", loss)
     metric_names = [x.name[:-2] for x in metrics]
+    for x in metrics:
+        tf.summary.scalar(x.name.replace(':', '_'), x)
 
     rate = FLAGS.learning_rate
     if FLAGS.opt == 'adam':
@@ -129,6 +132,7 @@ def main (_):
     global_step = tf.Variable(0, name='global_step', trainable=False)
     if FLAGS.decay:
         rate = tf.train.exponential_decay(rate, global_step, FLAGS.decay_steps, FLAGS.decay_rate, staircase=True)
+        tf.summary.scalar('learning_rate', rate)
     if FLAGS.opt == 'adam':
         optimizer = tf.train.AdamOptimizer(rate)
     elif FLAGS.opt == 'mom':
@@ -142,8 +146,11 @@ def main (_):
     train_summaries = tf.constant(1)
     #val_summaries = tf.constant(1)
     if FLAGS.log:
-        summary_writer = tf.summary.FileWriter(FLAGS.log, tf.get_default_graph(), flush_secs=20)
         train_summaries = tf.summary.merge_all()
+        assert not train_summaries is None
+        if not train_summaries is None:
+            summary_writer = tf.summary.FileWriter(FLAGS.log, tf.get_default_graph(), flush_secs=20)
+        #assert train_summaries
         #val_summaries = tf.summary.merge_all(key='val_summaries')
 
     init = tf.global_variables_initializer()
