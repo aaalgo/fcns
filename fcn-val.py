@@ -12,6 +12,7 @@ from skimage import measure
 # RESNET: import these for slim version of resnet
 import tensorflow as tf
 import picpac
+from stitcher import Stitcher
 from gallery import Gallery
 
 class Model:
@@ -79,6 +80,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('db', 'db', '')
 flags.DEFINE_string('model', 'model', 'Directory to put the training data.')
 flags.DEFINE_integer('channels', 1, '')
+flags.DEFINE_integer('patch', None, '')
 flags.DEFINE_string('out', None, '')
 flags.DEFINE_integer('max', 100, '')
 flags.DEFINE_string('name', 'logits:0', '')
@@ -145,7 +147,14 @@ def main (_):
     cc = 0
     with Model(FLAGS.model, name=FLAGS.name, prob=True) as model:
         for images, _, _ in stream:
-            probs = model.apply(images)
+            #images *= 600.0/1500
+            images -= 800
+            images *= 3000 /(2000-800)
+            if FLAGS.patch:
+                stch = Stitcher(images, FLAGS.patch)
+                probs = stch.stitch(model.apply(stch.split()))
+            else:
+                probs = model.apply(images)
             cc += 1
             save(gal.next(), images, probs)
             if FLAGS.max and cc >= FLAGS.max:
