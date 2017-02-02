@@ -8,6 +8,7 @@ import time
 import logging
 from tqdm import tqdm
 from skimage import measure
+import cv2
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -43,6 +44,7 @@ flags.DEFINE_float('pos_weight', None, '')
 flags.DEFINE_integer('max_size', None, '')
 flags.DEFINE_string('val_plot', None, '')
 flags.DEFINE_integer('max_to_keep', 1000, '')
+flags.DEFINE_float('contour_th', 0.5, '')
 
 # clip array to match FCN stride
 def clip (v, stride):
@@ -81,16 +83,23 @@ def fcn_loss (logits, labels):
     return loss, [loss] #, [loss, xe, norm, nz_all, nz_dim]
 
 def save_vis (path, prob, images):
-    image = images[0, :, :, 0]
+    if images.shape[3] == 1:
+        image = images[0, :, :, 0]
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    else:
+        image = images[0]
+        pass
+
     prob = prob[0]
-    contours = measure.find_contours(prob, FLAGS.cth)
+    contours = measure.find_contours(prob, FLAGS.contour_th)
 
     prob *= 255
+    prob = cv2.cvtColor(prob, cv2.COLOR_GRAY2BGR)
     cv2.normalize(image, image, 0, 255, cv2.NORM_MINMAX)
 
     H = max(image.shape[0], prob.shape[0])
-    both = np.zeros((H, image.shape[1]*2 + prob.shape[1]))
-    both[0:image.shape[0],0:image.shape[1]] = image
+    both = np.zeros((H, image.shape[1]*2 + prob.shape[1], 3))
+    both[0:image.shape[0],0:image.shape[1],:] = image
     off = image.shape[1]
 
     for contour in contours:
@@ -98,12 +107,12 @@ def save_vis (path, prob, images):
         contour[:, 0] = contour[:, 1]
         contour[:, 1] = tmp
         contour = contour.reshape((1, -1, 2)).astype(np.int32)
-        cv2.polylines(image, contour, True, 255)
-        cv2.polylines(prob, contour, True, 255)
+        cv2.polylines(image, contour, True, (0, 255, 0))
+        cv2.polylines(prob, contour, True, (0, 255, 0))
 
-    both[0:image.shape[0],off:(off+image.shape[1])] = image
+    both[0:image.shape[0],off:(off+image.shape[1]),:] = image
     off += image.shape[1]
-    both[0:prob.shape[0],off:(off+prob.shape[1])] = prob
+    both[0:prob.shape[0],off:(off+prob.shape[1]),:] = prob
     cv2.imwrite(path, both)
 
 def main (_):
