@@ -21,9 +21,9 @@ flags.DEFINE_string('val', None, '')
 flags.DEFINE_string('net', 'simple', '')
 flags.DEFINE_string('opt', 'adam', '')
 flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
-flags.DEFINE_bool('decay', False, '')
-flags.DEFINE_float('decay_rate', 10000, '')
-flags.DEFINE_float('decay_steps', 0.9, '')
+flags.DEFINE_bool('decay', True, '')
+flags.DEFINE_float('decay_rate', 0.9, '')
+flags.DEFINE_float('decay_steps', 10000, '')
 flags.DEFINE_float('momentum', 0.99, 'when opt==mom')
 flags.DEFINE_string('model', 'model', 'Directory to put the training data.')
 flags.DEFINE_string('resume', None, '')
@@ -37,6 +37,8 @@ flags.DEFINE_integer('channels', 1, '')
 flags.DEFINE_string('padding', 'SAME', '')
 flags.DEFINE_integer('verbose', logging.INFO, '')
 flags.DEFINE_bool('clip', False, '')
+flags.DEFINE_float('pos_weight', None, '')
+flags.DEFINE_integer('max_size', None, '')
 
 # clip array to match FCN stride
 def clip (v, stride):
@@ -62,7 +64,7 @@ def logits2prob (v, scope='logits2prob', scale=None):
             v *= scale
     return v
 
-def fcn_loss (logits, labels):
+def fcn_loss_old (logits, labels):
     # to HWC
     logits = tf.squeeze(logits, axis=0)
     labels = tf.squeeze(labels, axis=0)
@@ -75,9 +77,24 @@ def fcn_loss (logits, labels):
     labels = tf.image.crop_to_bounding_box(labels, 0, 0, H, W)
 
     logits = tf.reshape(logits, (-1, 2))
-    labels = tf.to_int32(labels)    # float from picpac
     labels = tf.reshape(labels, (-1,))
-    xe = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, labels)
+    xe = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, tf.to_int32(labels))
+    if FLAGS.pos_weight:
+        POS_W = tf.pow(tf.constant(FLAGS.pos_weight, dtype=tf.float32),
+                       labels)
+        xe = tf.multiply(xe, POS_W)
+    loss = tf.reduce_mean(xe, name='xe')
+    return loss, [loss] #, [loss, xe, norm, nz_all, nz_dim]
+
+def fcn_loss (logits, labels):
+    # to HWC
+    logits = tf.reshape(logits, (-1, 2))
+    labels = tf.reshape(labels, (-1,))
+    xe = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, tf.to_int32(labels))
+    if FLAGS.pos_weight:
+        POS_W = tf.pow(tf.constant(FLAGS.pos_weight, dtype=tf.float32),
+                       labels)
+        xe = tf.multiply(xe, POS_W)
     loss = tf.reduce_mean(xe, name='xe')
     return loss, [loss] #, [loss, xe, norm, nz_all, nz_dim]
 
@@ -89,33 +106,8 @@ def main (_):
         pass
     assert FLAGS.db and os.path.exists(FLAGS.db)
 
-    picpac_config = dict(seed=2016,
-                shuffle=True,
-                reshuffle=True,
-                batch=1,
-                split=1,
-                split_fold=0,
-                annotate='json',
-                channels=FLAGS.channels,
-                stratify=True,
-                pert_color1=20,
-                pert_angle=20,
-                pert_min_scale=0.8,
-                pert_max_scale=1.2,
-                pert_hflip=True,
-                pert_vflip=True,
-                channel_first=False # this is tensorflow specific
-                                    # Caffe's dimension order is different.
-                )
-
-    tr_stream = picpac.ImageStream(FLAGS.db, perturb=True, loop=True, **picpac_config)
-    val_stream = None
-    if FLAGS.val:
-        assert os.path.exists(FLAGS.val)
-        val_stream = picpac.ImageStream(FLAGS.val, perturb=False, loop=False, **picpac_config)
-
     X = tf.placeholder(tf.float32, shape=(None, None, None, FLAGS.channels), name="images")
-    Y = tf.placeholder(tf.int32, shape=(None, None, None, 1), name="labels")
+    Y = tf.placeholder(tf.float32, shape=(None, None, None, 1), name="labels")
 
     with slim.arg_scope([slim.conv2d, slim.conv2d_transpose, slim.max_pool2d],
                             padding=FLAGS.padding):
@@ -153,6 +145,34 @@ def main (_):
         #assert train_summaries
         #val_summaries = tf.summary.merge_all(key='val_summaries')
 
+    print("XXXXX", stride)
+    picpac_config = dict(seed=2016,
+                shuffle=True,
+                reshuffle=True,
+                batch=1,
+                split=1,
+                split_fold=0,
+                round_div=stride,
+                annotate='json',
+                channels=FLAGS.channels,
+                stratify=True,
+                pert_color1=20,
+                pert_angle=20,
+                pert_min_scale=0.9,
+                pert_max_scale=1.5,
+                pert_hflip=True,
+                pert_vflip=True,
+                channel_first=False # this is tensorflow specific
+                                    # Caffe's dimension order is different.
+                )
+
+    tr_stream = picpac.ImageStream(FLAGS.db, perturb=True, loop=True, **picpac_config)
+    val_stream = None
+    if FLAGS.val:
+        assert os.path.exists(FLAGS.val)
+        val_stream = picpac.ImageStream(FLAGS.val, perturb=False, loop=False, **picpac_config)
+
+
     init = tf.global_variables_initializer()
 
     saver = tf.train.Saver()
@@ -187,7 +207,13 @@ def main (_):
             start_time = time.time()
             avg = np.array([0] * len(metrics), dtype=np.float32)
             for _ in tqdm(range(FLAGS.epoch_steps), leave=False):
-                images, labels, _ = tr_stream.next()
+                while True:
+                    images, labels, _ = tr_stream.next()
+                    _, H, W, _ = images.shape
+                    if FLAGS.max_size:
+                        if max(H, W) > FLAGS.max_size:
+                            continue
+                    break
                 if FLAGS.padding == 'SAME' and FLAGS.clip:
                     images = clip(images, stride)
                     labels = clip(labels, stride)
@@ -219,6 +245,7 @@ def main (_):
                         images = clip(images, stride)
                         labels = clip(labels, stride)
                     feed_dict = {X: images, Y: labels}
+                    #print("XXX", images.shape)
                     mm, = sess.run([metrics], feed_dict=feed_dict)
                     avg += np.array(mm)
                     cc += 1

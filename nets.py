@@ -33,7 +33,44 @@ def tiny (X, num_classes=2):
                          )
         net = slim.conv2d_transpose(net, num_classes, 17, 8, scope='upscale')
     net = tf.identity(net, 'logits')
-    return net, 16
+    return net, 8
+
+def woshialex (X, num_classes=2):
+    net = X
+    with tf.name_scope('woshialex'):
+        net = slim.batch_norm(slim.conv2d(net, 8, 5, 1))
+        net = slim.batch_norm(slim.conv2d(net, 16, 3, 1))
+        net = slim.max_pool2d(net, 2, 2)
+        net = slim.batch_norm(slim.conv2d(net, 32, 4, 1))
+        net = slim.max_pool2d(net, 2, 2)
+        net = slim.batch_norm(slim.conv2d(net, 64, 4, 1))
+        net = slim.max_pool2d(net, 2, 2)
+        net = slim.batch_norm(slim.conv2d(net, 128, 5, 1))
+        net = slim.batch_norm(slim.conv2d(net, 64, 5, 1))
+        net = slim.batch_norm(slim.conv2d_transpose(net, 32, 5, 2))
+        net = slim.batch_norm(slim.conv2d_transpose(net, 16, 5, 2))
+        net = slim.batch_norm(slim.conv2d_transpose(net, 8, 5, 2))
+        net = slim.conv2d(net, num_classes, 5, 1, activation_fn=None) 
+    return tf.identity(net, 'logits'), 8
+
+def superalex (X, num_classes=2):
+    net = X
+    with tf.name_scope('superalex'):
+        net = slim.batch_norm(slim.conv2d(net, 16, 5, 2))
+        net = slim.batch_norm(slim.conv2d(net, 32, 3, 1))
+        net = slim.max_pool2d(net, 2, 2)
+        net = slim.batch_norm(slim.conv2d(net, 64, 4, 1))
+        net = slim.max_pool2d(net, 2, 2)
+        net = slim.batch_norm(slim.conv2d(net, 128, 4, 1))
+        net = slim.max_pool2d(net, 2, 2)
+        net = slim.batch_norm(slim.conv2d(net, 256, 5, 1))
+        net = slim.batch_norm(slim.conv2d(net, 128, 5, 1))
+        net = slim.batch_norm(slim.conv2d_transpose(net, 64, 5, 2))
+        net = slim.batch_norm(slim.conv2d_transpose(net, 32, 5, 2))
+        net = slim.batch_norm(slim.conv2d_transpose(net, 16, 5, 2))
+        net = slim.batch_norm(slim.conv2d_transpose(net, 8, 5, 2))
+        net = slim.conv2d(net, num_classes, 5, 1, activation_fn=None) 
+    return tf.identity(net, 'logits'), 16
 
 
 # conv2d and conv2d_transpose
@@ -91,7 +128,11 @@ def resnet_tiny (inputs, num_classes=2, scope ='resnet_tiny'):
         include_root_block=True,
         reuse=False,              # do not re-use network
         scope=scope)
-    net = slim.conv2d_transpose(net, num_classes, 31, 16, scope='upscale')
+    net = slim.batch_norm(slim.conv2d_transpose(net, 64, 5, 2))
+    net = slim.batch_norm(slim.conv2d_transpose(net, 32, 5, 2))
+    net = slim.batch_norm(slim.conv2d_transpose(net, 16, 5, 2))
+    net = slim.batch_norm(slim.conv2d_transpose(net, 8, 5, 2))
+    net = slim.conv2d(net, num_classes, 5, 1, activation_fn=None) 
     net = tf.identity(net, 'logits')
     return net, 16
 
