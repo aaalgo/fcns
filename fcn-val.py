@@ -85,6 +85,8 @@ flags.DEFINE_string('out', None, '')
 flags.DEFINE_integer('max', 100, '')
 flags.DEFINE_string('name', 'logits:0', '')
 flags.DEFINE_float('cth', 0.5, '')
+flags.DEFINE_integer('stride', 0, '')
+flags.DEFINE_integer('max_size', None, '')
 
 def save (path, images, prob):
     image = images[0, :, :, 0]
@@ -123,6 +125,7 @@ def main (_):
                 reshuffle=True,
                 #resize_width=256,
                 #resize_height=256,
+                round_div = FLAGS.stride,
                 batch=1,
                 split=1,
                 split_fold=0,
@@ -148,8 +151,12 @@ def main (_):
     with Model(FLAGS.model, name=FLAGS.name, prob=True) as model:
         for images, _, _ in stream:
             #images *= 600.0/1500
-            images -= 800
-            images *= 3000 /(2000-800)
+            #images -= 800
+            #images *= 3000 /(2000-800)
+            _, H, W, _ = images.shape
+            if FLAGS.max_size:
+                if max(H, W) > FLAGS.max_size:
+                    continue
             if FLAGS.patch:
                 stch = Stitcher(images, FLAGS.patch)
                 probs = stch.stitch(model.apply(stch.split()))

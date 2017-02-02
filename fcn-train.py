@@ -7,12 +7,14 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import time
 import logging
 from tqdm import tqdm
+from skimage import measure
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 from tensorflow.contrib.layers.python.layers import utils
 import picpac
 import nets
+from gallery import Gallery
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
@@ -39,6 +41,7 @@ flags.DEFINE_integer('verbose', logging.INFO, '')
 flags.DEFINE_bool('clip', False, '')
 flags.DEFINE_float('pos_weight', None, '')
 flags.DEFINE_integer('max_size', None, '')
+flags.DEFINE_string('val_plot', None, '')
 
 # clip array to match FCN stride
 def clip (v, stride):
@@ -64,28 +67,6 @@ def logits2prob (v, scope='logits2prob', scale=None):
             v *= scale
     return v
 
-def fcn_loss_old (logits, labels):
-    # to HWC
-    logits = tf.squeeze(logits, axis=0)
-    labels = tf.squeeze(labels, axis=0)
-    # crop logits and labels to smaller size
-    logits_shape = tf.unpack(tf.shape(logits))
-    labels_shape = tf.unpack(tf.shape(labels))
-    H = tf.minimum(logits_shape[0], labels_shape[0])
-    W = tf.minimum(logits_shape[1], labels_shape[1])
-    logits = tf.image.crop_to_bounding_box(logits, 0, 0, H, W)
-    labels = tf.image.crop_to_bounding_box(labels, 0, 0, H, W)
-
-    logits = tf.reshape(logits, (-1, 2))
-    labels = tf.reshape(labels, (-1,))
-    xe = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, tf.to_int32(labels))
-    if FLAGS.pos_weight:
-        POS_W = tf.pow(tf.constant(FLAGS.pos_weight, dtype=tf.float32),
-                       labels)
-        xe = tf.multiply(xe, POS_W)
-    loss = tf.reduce_mean(xe, name='xe')
-    return loss, [loss] #, [loss, xe, norm, nz_all, nz_dim]
-
 def fcn_loss (logits, labels):
     # to HWC
     logits = tf.reshape(logits, (-1, 2))
@@ -97,6 +78,32 @@ def fcn_loss (logits, labels):
         xe = tf.multiply(xe, POS_W)
     loss = tf.reduce_mean(xe, name='xe')
     return loss, [loss] #, [loss, xe, norm, nz_all, nz_dim]
+
+def save_vis (path, prob, image):
+    image = images[0, :, :, 0]
+    prob = prob[0]
+    contours = measure.find_contours(prob, FLAGS.cth)
+
+    prob *= 255
+    cv2.normalize(image, image, 0, 255, cv2.NORM_MINMAX)
+
+    H = max(image.shape[0], prob.shape[0])
+    both = np.zeros((H, image.shape[1]*2 + prob.shape[1]))
+    both[0:image.shape[0],0:image.shape[1]] = image
+    off = image.shape[1]
+
+    for contour in contours:
+        tmp = np.copy(contour[:,0])
+        contour[:, 0] = contour[:, 1]
+        contour[:, 1] = tmp
+        contour = contour.reshape((1, -1, 2)).astype(np.int32)
+        cv2.polylines(image, contour, True, 255)
+        cv2.polylines(prob, contour, True, 255)
+
+    both[0:image.shape[0],off:(off+image.shape[1])] = image
+    off += image.shape[1]
+    both[0:prob.shape[0],off:(off+prob.shape[1])] = prob
+    cv2.imwrite(path, both)
 
 def main (_):
     logging.basicConfig(level=FLAGS.verbose)
@@ -113,6 +120,7 @@ def main (_):
                             padding=FLAGS.padding):
         logits, stride = getattr(nets, FLAGS.net)(X)
     loss, metrics = fcn_loss(logits, Y)
+    prob = logits2prob(logits)
     #tf.summary.scalar("loss", loss)
     metric_names = [x.name[:-2] for x in metrics]
     for x in metrics:
@@ -145,7 +153,6 @@ def main (_):
         #assert train_summaries
         #val_summaries = tf.summary.merge_all(key='val_summaries')
 
-    print("XXXXX", stride)
     picpac_config = dict(seed=2016,
                 shuffle=True,
                 reshuffle=True,
@@ -185,14 +192,11 @@ def main (_):
     graph.finalize()
     graph_def = graph.as_graph_def()
     for node in graph_def.node:
-        if 'padding' in node.attr:
+        if 'padding' in node.attr and not 'Backprop' in node.name:
             padding = node.attr['padding'].s
             if padding != FLAGS.padding:
                 logging.error("node %s type %s incorrect padding %s, should be %s" % (
                                 node.name, node.op, padding, FLAGS.padding))
-            else:
-                logging.info("node %s padding OK" % node.name)
-                pass
             pass
         pass
 
@@ -240,15 +244,26 @@ def main (_):
                 val_stream.reset()
                 avg = np.array([0] * len(metrics), dtype=np.float32)
                 cc = 0
+                gal = None
+                if FLAGS.val_plot:
+                    gal = Gallery(os.path.join(FLAGS.val_plot, str(step)))
                 for images, labels, _ in val_stream:
+                    _, H, W, _ = images.shape
+                    if FLAGS.max_size:
+                        if max(H, W) > FLAGS.max_size:
+                            continue
                     if FLAGS.padding == 'SAME' and FLAGS.clip:
                         images = clip(images, stride)
                         labels = clip(labels, stride)
                     feed_dict = {X: images, Y: labels}
                     #print("XXX", images.shape)
-                    mm, = sess.run([metrics], feed_dict=feed_dict)
+                    pp, mm, = sess.run([prob, metrics], feed_dict=feed_dict)
+                    if gal:
+                        save_vis(gal.next(), pp, images)
                     avg += np.array(mm)
                     cc += 1
+                if gal:
+                    gal.flush()
                 avg /= cc
                 txt = ', '.join(['%s=%.4f' % (a, b) for a, b in zip(metric_names, list(avg))])
                 print('epoch %d step %d, validation %s'
