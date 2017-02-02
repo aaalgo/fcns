@@ -42,6 +42,7 @@ flags.DEFINE_bool('clip', False, '')
 flags.DEFINE_float('pos_weight', None, '')
 flags.DEFINE_integer('max_size', None, '')
 flags.DEFINE_string('val_plot', None, '')
+flags.DEFINE_integer('max_to_keep', 1000, '')
 
 # clip array to match FCN stride
 def clip (v, stride):
@@ -79,7 +80,7 @@ def fcn_loss (logits, labels):
     loss = tf.reduce_mean(xe, name='xe')
     return loss, [loss] #, [loss, xe, norm, nz_all, nz_dim]
 
-def save_vis (path, prob, image):
+def save_vis (path, prob, images):
     image = images[0, :, :, 0]
     prob = prob[0]
     contours = measure.find_contours(prob, FLAGS.cth)
@@ -182,7 +183,7 @@ def main (_):
 
     init = tf.global_variables_initializer()
 
-    saver = tf.train.Saver()
+    saver = tf.train.Saver(max_to_keep=FLAGS.max_to_keep)
     config = tf.ConfigProto()
     config.gpu_options.allow_growth=True
 
