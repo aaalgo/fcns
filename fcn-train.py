@@ -74,7 +74,7 @@ def fcn_loss (logits, labels):
     # to HWC
     logits = tf.reshape(logits, (-1, 2))
     labels = tf.reshape(labels, (-1,))
-    xe = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, tf.to_int32(labels))
+    xe = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=tf.to_int32(labels))
     if FLAGS.pos_weight:
         POS_W = tf.pow(tf.constant(FLAGS.pos_weight, dtype=tf.float32),
                        labels)
