@@ -20,6 +20,7 @@ from gallery import Gallery
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_string('db', 'db', '')
+flags.DEFINE_string('mixin', None, '')
 flags.DEFINE_string('val', None, '')
 flags.DEFINE_string('net', 'simple', '')
 flags.DEFINE_string('opt', 'adam', '')
@@ -182,6 +183,9 @@ def main (_):
                 channel_first=False # this is tensorflow specific
                                     # Caffe's dimension order is different.
                 )
+    if not FLAGS.mixin is None:
+        picpac_config['mixin'] = FLAGS.mixin
+        picpac_config['mixin_group_delta'] = 1
 
     tr_stream = picpac.ImageStream(FLAGS.db, perturb=True, loop=True, **picpac_config)
     val_stream = None
