@@ -175,6 +175,8 @@ def main (_):
                 channels=FLAGS.channels,
                 stratify=True,
                 pert_color1=20,
+                pert_color2=20,
+                pert_color3=20,
                 pert_angle=20,
                 pert_min_scale=0.9,
                 pert_max_scale=1.5,
