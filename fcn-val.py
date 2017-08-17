@@ -79,7 +79,7 @@ flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_string('db', 'db', '')
 flags.DEFINE_string('model', 'model', 'Directory to put the training data.')
-flags.DEFINE_integer('channels', 1, '')
+flags.DEFINE_integer('channels', 3, '')
 flags.DEFINE_integer('patch', None, '')
 flags.DEFINE_string('out', None, '')
 flags.DEFINE_integer('max', 100, '')
@@ -89,16 +89,17 @@ flags.DEFINE_integer('stride', 0, '')
 flags.DEFINE_integer('max_size', None, '')
 
 def save (path, images, prob):
-    image = images[0, :, :, 0]
+    image = images[0, :, :, :]
     prob = prob[0]
     contours = measure.find_contours(prob, FLAGS.cth)
 
     prob *= 255
     cv2.normalize(image, image, 0, 255, cv2.NORM_MINMAX)
+    prob = cv2.cvtColor(prob, cv2.COLOR_GRAY2BGR)
 
     H = max(image.shape[0], prob.shape[0])
-    both = np.zeros((H, image.shape[1]*2 + prob.shape[1]))
-    both[0:image.shape[0],0:image.shape[1]] = image
+    both = np.zeros((H, image.shape[1]*2 + prob.shape[1], 3))
+    both[0:image.shape[0],0:image.shape[1],:] = image
     off = image.shape[1]
 
     for contour in contours:
@@ -106,12 +107,12 @@ def save (path, images, prob):
         contour[:, 0] = contour[:, 1]
         contour[:, 1] = tmp
         contour = contour.reshape((1, -1, 2)).astype(np.int32)
-        cv2.polylines(image, contour, True, 255)
-        cv2.polylines(prob, contour, True, 255)
+        cv2.polylines(image, contour, True, (0, 255,0))
+        cv2.polylines(prob, contour, True, (0,255,0))
 
-    both[0:image.shape[0],off:(off+image.shape[1])] = image
+    both[0:image.shape[0],off:(off+image.shape[1]), :] = image
     off += image.shape[1]
-    both[0:prob.shape[0],off:(off+prob.shape[1])] = prob
+    both[0:prob.shape[0],off:(off+prob.shape[1]), :] = prob
     cv2.imwrite(path, both)
 
 
