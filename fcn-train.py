@@ -165,6 +165,7 @@ def main (_):
         #val_summaries = tf.summary.merge_all(key='val_summaries')
 
     picpac_config = dict(seed=2016,
+                max_size=320,
                 shuffle=True,
                 reshuffle=True,
                 batch=1,
