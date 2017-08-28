@@ -46,6 +46,7 @@ flags.DEFINE_integer('max_size', None, '')
 flags.DEFINE_string('val_plot', None, '')
 flags.DEFINE_integer('max_to_keep', 1000, '')
 flags.DEFINE_float('contour_th', 0.5, '')
+flags.DEFINE_string('samples', None, '')
 
 # clip array to match FCN stride
 def clip (v, stride):
@@ -217,6 +218,11 @@ def main (_):
             pass
         pass
 
+    samples = None
+    if FLAGS.samples:
+        samples = Gallery(FLAGS.samples)
+
+
     with tf.Session(config=config) as sess:
         sess.run(init)
         if FLAGS.resume:
@@ -238,6 +244,11 @@ def main (_):
                 if FLAGS.padding == 'SAME' and FLAGS.clip:
                     images = clip(images, stride)
                     labels = clip(labels, stride)
+                if samples:
+                    cv2.imwrite(samples.next(), images[0])
+                    if step > 100:
+                        samples.flush()
+                        samples = None
                 feed_dict = {X: images, Y: labels}
                 mm, _, summaries = sess.run([metrics, train_op, train_summaries], feed_dict=feed_dict)
                 avg += np.array(mm)
