@@ -184,12 +184,12 @@ def myunet (X, num_classes=2):
         net = slim.batch_norm(slim.conv2d(net, 128, 5, 1))
         net = slim.batch_norm(slim.conv2d_transpose(net, 64, 5, 2))
                                 # 1/8
-        net = tf.concat(3, [net, stack.pop()])
+        net = tf.concat([net, stack.pop()], 3)
         net = slim.batch_norm(slim.conv2d_transpose(net, 32, 5, 2))
                                 # 1/4
-        net = tf.concat(3, [net, stack.pop()])
+        net = tf.concat([net, stack.pop()], 3)
         net = slim.batch_norm(slim.conv2d_transpose(net, 16, 5, 2))
-        net = tf.concat(3, [net, stack.pop()])
+        net = tf.concat([net, stack.pop()], 3)
         net = slim.batch_norm(slim.conv2d_transpose(net, 8, 5, 2))
         net = slim.conv2d(net, num_classes, 5, 1, activation_fn=None) 
         assert len(stack) == 0
